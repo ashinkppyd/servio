@@ -1,0 +1,33 @@
+from django.urls import path
+from .views import WorkerRegisterView, CompanyRegisterView
+from .views import SendOTPView, VerifyOTPAndRegisterView
+from .views import ResendOTPView
+from .views import LoginView
+from .views import ForgotPasswordView
+from .views import ResetPasswordView
+from .views import GoogleLoginView
+from .views import MeView
+from .views import LogoutView
+from .views import ProfileView
+from .views import VerifyLoginMFAView,EnableMFAView,VerifyMFAView,DisableMFAView
+from rest_framework_simplejwt.views import TokenObtainPairView
+
+urlpatterns = [
+    path('register/worker/', WorkerRegisterView.as_view()),
+    path('register/company/', CompanyRegisterView.as_view()),
+    path('send-otp/', SendOTPView.as_view()),
+    path('verify-otp/', VerifyOTPAndRegisterView.as_view()),
+    path('resend-otp/', ResendOTPView.as_view()),
+    path('login/', LoginView.as_view()),
+    path('token/', TokenObtainPairView.as_view()),
+    path("forgot-password/", ForgotPasswordView.as_view()),
+    path("reset-password/", ResetPasswordView.as_view()),
+    path("google-login/", GoogleLoginView.as_view()),
+    path("me/", MeView.as_view()),
+    path('logout/',LogoutView.as_view()),
+    path("profile/", ProfileView.as_view()),
+    path("verify-login-mfa/", VerifyLoginMFAView.as_view()),
+    path("enable-mfa/", EnableMFAView.as_view()),
+    path("verify-mfa/", VerifyMFAView.as_view()),
+    path("disable-mfa/", DisableMFAView.as_view()),
+]
