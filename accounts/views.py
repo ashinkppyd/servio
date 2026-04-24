@@ -1,34 +1,35 @@
-from django.shortcuts import render
-from rest_framework.views import APIView
-from rest_framework.response import Response
-from .serializers import WorkerRegisterSerializer, CompanyRegisterSerializer
-from rest_framework import status
-from .models import OTP
-from .utils import send_otp
-from django.contrib.auth import authenticate
-from rest_framework_simplejwt.tokens import RefreshToken
-from rest_framework.permissions import AllowAny
-from .models import User
-from django.contrib.auth.tokens import default_token_generator
-from django.utils.http import urlsafe_base64_encode, urlsafe_base64_decode
-from django.utils.encoding import force_bytes, force_str
-from django.core.mail import send_mail
-from django.contrib.auth import get_user_model
-from google.oauth2 import id_token
-from django.http import JsonResponse
-from google.auth.transport import requests as google_requests
-from rest_framework.permissions import IsAuthenticated
-import json
-from .serializers import ProfileSerializer
-import pyotp
-import qrcode
 import base64
+import json
 from io import BytesIO
 
+import pyotp
+import qrcode
+from django.contrib.auth import authenticate, get_user_model
+from django.contrib.auth.tokens import default_token_generator
+from django.core.mail import send_mail
+from django.utils.encoding import force_bytes, force_str
+from django.utils.http import urlsafe_base64_decode, urlsafe_base64_encode
+from google.auth.transport import requests as google_requests
+from google.oauth2 import id_token
+from rest_framework.permissions import AllowAny, IsAuthenticated
+from rest_framework.response import Response
+from rest_framework.views import APIView
+from rest_framework_simplejwt.tokens import RefreshToken
+
+from .models import OTP
+from .serializers import (
+    CompanyRegisterSerializer,
+    ProfileSerializer,
+    WorkerRegisterSerializer,
+)
+from .utils import send_otp
+
+User = get_user_model()
 
 
 class WorkerRegisterView(APIView):
     permission_classes = [AllowAny]
+
     def post(self, request):
         serializer = WorkerRegisterSerializer(data=request.data)
         if serializer.is_valid():
@@ -39,6 +40,7 @@ class WorkerRegisterView(APIView):
 
 class CompanyRegisterView(APIView):
     permission_classes = [AllowAny]
+
     def post(self, request):
         serializer = CompanyRegisterSerializer(data=request.data)
         if serializer.is_valid():
@@ -47,16 +49,18 @@ class CompanyRegisterView(APIView):
         return Response(serializer.errors, status=400)
 
 
-
 User = get_user_model()
+
+
 class SendOTPView(APIView):
     permission_classes = [AllowAny]
+
     def post(self, request):
-        email = request.data.get('email')
-        role = request.data.get('role')
+        email = request.data.get("email")
+        # role = request.data.get("role")
         if not email:
             return Response({"error": "Email required"}, status=400)
-        response = Response({"message": "OTP sent successfully"})
+        response = Response({"message": "OTP sent successfully"}, status=200)
 
         response.set_cookie(
             key="register_data",
@@ -65,7 +69,7 @@ class SendOTPView(APIView):
             secure=False,
             samesite="Lax",
             path="/",
-            max_age=300
+            max_age=300,
         )
         send_otp(email)
         return response
@@ -73,16 +77,17 @@ class SendOTPView(APIView):
 
 class VerifyOTPAndRegisterView(APIView):
     permission_classes = [AllowAny]
+
     def post(self, request):
-        otp = request.data.get('otp')
+        otp = request.data.get("otp")
         raw_data = request.COOKIES.get("register_data")
         if not raw_data:
             return Response({"error": "Session expired"}, status=400)
-        
+
         data = json.loads(raw_data)
-        email = data.get('email')
-        role = data.get('role')
-        otp_obj = OTP.objects.filter(email=email).order_by('-created_at').first()
+        email = data.get("email")
+        role = data.get("role")
+        otp_obj = OTP.objects.filter(email=email).order_by("-created_at").first()
 
         if not otp_obj:
             return Response({"error": "OTP not found"}, status=400)
@@ -92,18 +97,16 @@ class VerifyOTPAndRegisterView(APIView):
             return Response({"error": "Invalid OTP"}, status=400)
         otp_obj.delete()
 
-        if role == 'worker':
+        if role == "worker":
             serializer = WorkerRegisterSerializer(data=data)
-        elif role == 'company':
+        elif role == "company":
             serializer = CompanyRegisterSerializer(data=data)
         else:
             return Response({"error": "Invalid role"}, status=400)
 
         if serializer.is_valid():
             serializer.save()
-            response = Response({
-                "message": f"{role} registered successfully"
-            })
+            response = Response({"message": f"{role} registered successfully"})
             response.delete_cookie("register_data", path="/")
             return response
         return Response(serializer.errors, status=400)
@@ -111,6 +114,7 @@ class VerifyOTPAndRegisterView(APIView):
 
 class ResendOTPView(APIView):
     permission_classes = [AllowAny]
+
     def post(self, request):
         raw_data = request.COOKIES.get("register_data")
         if not raw_data:
@@ -121,22 +125,21 @@ class ResendOTPView(APIView):
 
         if not email:
             return Response({"error": "Email not found"}, status=400)
-        otp_obj = OTP.objects.filter(email=email).order_by('-created_at').first()
+        otp_obj = OTP.objects.filter(email=email).order_by("-created_at").first()
 
         if otp_obj and not otp_obj.can_resend():
-            return Response({
-                "error": "Wait 30 seconds before requesting new OTP"
-            }, status=400)
+            return Response(
+                {"error": "Wait 30 seconds before requesting new OTP"}, status=400
+            )
 
         OTP.objects.filter(email=email).delete()
         send_otp(email)
-        return Response({"message": "OTP resent successfully"})
-
-
+        return Response({"message": "OTP resent successfully"}, status=200)
 
 
 class LoginView(APIView):
     permission_classes = [AllowAny]
+
     def post(self, request):
         username = request.data.get("username")
         password = request.data.get("password")
@@ -147,7 +150,9 @@ class LoginView(APIView):
         if user is None:
             try:
                 user_obj = User.objects.get(email=username)
-                user = authenticate(request, username=user_obj.username, password=password)
+                user = authenticate(
+                    request, username=user_obj.username, password=password
+                )
             except User.DoesNotExist:
                 user = None
         if user is None:
@@ -156,21 +161,20 @@ class LoginView(APIView):
         if user.is_mfa_enabled:
             request.session["mfa_user_id"] = user.id
             request.session.modified = True
-            return Response({
-                "mfa_required": True,
-                "message": "Enter MFA code"
-            })
-  
+            return Response({"mfa_required": True, "message": "Enter MFA code"})
+
         refresh = RefreshToken.for_user(user)
-        response = Response({
-            "message": "Login successful",
-            "user": {
-                "id": user.id,
-                "username": user.username,
-                "email": user.email,
-                "role": user.role,
+        response = Response(
+            {
+                "message": "Login successful",
+                "user": {
+                    "id": user.id,
+                    "username": user.username,
+                    "email": user.email,
+                    "role": user.role,
+                },
             }
-        })
+        )
 
         response.set_cookie(
             "access_token",
@@ -193,9 +197,9 @@ class LoginView(APIView):
         return response
 
 
-
 class VerifyLoginMFAView(APIView):
     permission_classes = [AllowAny]
+
     def post(self, request):
         otp = request.data.get("otp")
         user_id = request.session.get("mfa_user_id")
@@ -205,19 +209,21 @@ class VerifyLoginMFAView(APIView):
         user = User.objects.get(id=user_id)
         totp = pyotp.TOTP(user.mfa_secret)
 
-        if not totp.verify(otp,valid_window=1):
+        if not totp.verify(otp, valid_window=1):
             return Response({"error": "Invalid OTP"}, status=400)
 
         refresh = RefreshToken.for_user(user)
-        response = Response({
-            "message": "Login successful",
-            "user": {
-                "id": user.id,
-                "username": user.username,
-                "email": user.email,
-                "role": user.role,
+        response = Response(
+            {
+                "message": "Login successful",
+                "user": {
+                    "id": user.id,
+                    "username": user.username,
+                    "email": user.email,
+                    "role": user.role,
+                },
             }
-        })
+        )
 
         response.set_cookie(
             "access_token",
@@ -240,34 +246,29 @@ class VerifyLoginMFAView(APIView):
         return response
 
 
-
 class EnableMFAView(APIView):
     permission_classes = [IsAuthenticated]
+
     def get(self, request):
         user = request.user
         if not user.mfa_secret:
-           user.mfa_secret = pyotp.random_base32()
-           user.save()
+            user.mfa_secret = pyotp.random_base32()
+            user.save()
 
         secret = user.mfa_secret
         totp = pyotp.TOTP(secret)
-        uri = totp.provisioning_uri(
-            name=user.email,
-            issuer_name="SERVIO"
-        )
+        uri = totp.provisioning_uri(name=user.email, issuer_name="SERVIO")
 
         qr = qrcode.make(uri)
         buffer = BytesIO()
         qr.save(buffer, format="PNG")
         qr_base64 = base64.b64encode(buffer.getvalue()).decode()
-        return Response({
-            "qr_code": f"data:image/png;base64,{qr_base64}"
-        })
-
+        return Response({"qr_code": f"data:image/png;base64,{qr_base64}"})
 
 
 class VerifyMFAView(APIView):
     permission_classes = [IsAuthenticated]
+
     def post(self, request):
         otp = request.data.get("otp")
         user = request.user
@@ -276,7 +277,7 @@ class VerifyMFAView(APIView):
             return Response({"error": "MFA not initialized"}, status=400)
 
         totp = pyotp.TOTP(user.mfa_secret)
-        if totp.verify(otp,valid_window=1):
+        if totp.verify(otp, valid_window=1):
             user.is_mfa_enabled = True
             user.save()
 
@@ -286,17 +287,19 @@ class VerifyMFAView(APIView):
 
 class DisableMFAView(APIView):
     permission_classes = [IsAuthenticated]
+
     def post(self, request):
         user = request.user
         user.is_mfa_enabled = False
         user.mfa_secret = None
         user.save()
 
-        return Response({"message": "MFA disabled successfully"})
+        return Response({"message": "MFA disabled successfully"}, status=200)
 
 
 class GoogleLoginView(APIView):
     permission_classes = [AllowAny]
+
     def post(self, request):
         token = request.data.get("credential")
 
@@ -307,26 +310,30 @@ class GoogleLoginView(APIView):
             idinfo = id_token.verify_oauth2_token(
                 token,
                 google_requests.Request(),
-                "439470469308-jogdufc2e60kcbp02vdctdfdbbd9iu49.apps.googleusercontent.com"
+                (
+                    "439470469308-jogdufc2e60kcbp02vdctdfdbbd9iu49"
+                    ".apps.googleusercontent.com"
+                ),
             )
             email = idinfo.get("email")
             if not email:
                 return Response({"error": "Email not found"}, status=400)
 
             user, _ = User.objects.get_or_create(
-                email=email,
-                defaults={"username": email, "role": "worker"}
+                email=email, defaults={"username": email, "role": "worker"}
             )
             refresh = RefreshToken.for_user(user)
 
-            response = Response({
-                "message": "Google login success",
-                "user": {
-                    "email": user.email,
-                    "username": user.username,
-                    "role": user.role
+            response = Response(
+                {
+                    "message": "Google login success",
+                    "user": {
+                        "email": user.email,
+                        "username": user.username,
+                        "role": user.role,
+                    },
                 }
-            })
+            )
 
             response.set_cookie(
                 "access_token",
@@ -353,21 +360,22 @@ class GoogleLoginView(APIView):
             return Response({"error": "Invalid Google token"}, status=400)
 
 
-
-
 class MeView(APIView):
     permission_classes = [IsAuthenticated]
+
     def get(self, request):
         print(" COOKIES:", request.COOKIES)
         print(" USER:", request.user)
         user = request.user
 
-        return Response({
-            "id": user.id,
-            "username": user.username,
-            "email": user.email,
-            "role": user.role
-        })
+        return Response(
+            {
+                "id": user.id,
+                "username": user.username,
+                "email": user.email,
+                "role": user.role,
+            }
+        )
 
 
 class LogoutView(APIView):
@@ -378,7 +386,6 @@ class LogoutView(APIView):
         response.delete_cookie("access_token", path="/")
         response.delete_cookie("refresh_token", path="/")
         return response
-
 
 
 class ForgotPasswordView(APIView):
@@ -399,10 +406,10 @@ class ForgotPasswordView(APIView):
         send_mail(
             "Reset Your Password",
             f"Click the link:\n{reset_url}",
-            "your_email@gmail.com",
+            "ashinkppyd@gmail.com",
             [email],
         )
-        return Response({"message": "Reset link sent"})
+        return Response({"message": "Reset link sent"}, status=200)
 
 
 class ResetPasswordView(APIView):
@@ -416,7 +423,7 @@ class ResetPasswordView(APIView):
         try:
             user_id = force_str(urlsafe_base64_decode(uid))
             user = User.objects.get(id=user_id)
-        except:
+        except Exception:
             return Response({"error": "Invalid link"}, status=400)
 
         if not default_token_generator.check_token(user, token):
@@ -424,12 +431,12 @@ class ResetPasswordView(APIView):
 
         user.set_password(password)
         user.save()
-        return Response({"message": "Password reset successful"})
-    
+        return Response({"message": "Password reset successful"}, status=200)
 
 
 class ProfileView(APIView):
     permission_classes = [IsAuthenticated]
+
     def get(self, request):
         serializer = ProfileSerializer(request.user)
         return Response(serializer.data)
@@ -442,6 +449,3 @@ class ProfileView(APIView):
             serializer.save()
             return Response(serializer.data)
         return Response(serializer.errors, status=400)
-    
-
-

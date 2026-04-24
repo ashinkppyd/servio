@@ -1,25 +1,26 @@
-from rest_framework import serializers
-from .models import User
 import re
+
+from rest_framework import serializers
+
+from .models import User
 
 
 class WorkerRegisterSerializer(serializers.ModelSerializer):
     confirm_password = serializers.CharField(write_only=True)
+
     class Meta:
         model = User
         fields = [
-            'username',
-            'email',
-            'phone',
-            'state',
-            'district',
-            'place',
-            'password',
-            'confirm_password'
+            "username",
+            "email",
+            "phone",
+            "state",
+            "district",
+            "place",
+            "password",
+            "confirm_password",
         ]
-        extra_kwargs = {
-            'password': {'write_only': True}
-        }
+        extra_kwargs = {"password": {"write_only": True}}
 
     def validate(self, data):
 
@@ -27,9 +28,9 @@ class WorkerRegisterSerializer(serializers.ModelSerializer):
             if not data.get(field):
                 raise serializers.ValidationError(f"{field} is required")
 
-        if data['password'] != data['confirm_password']:
+        if data["password"] != data["confirm_password"]:
             raise serializers.ValidationError("Passwords do not match")
-        password = data['password']
+        password = data["password"]
 
         if len(password) < 8:
             raise serializers.ValidationError("Password must be at least 8 characters")
@@ -52,47 +53,46 @@ class WorkerRegisterSerializer(serializers.ModelSerializer):
         return data
 
     def create(self, validated_data):
-        validated_data.pop('confirm_password')
+        validated_data.pop("confirm_password")
         user = User.objects.create_user(
-            username=validated_data['username'],
-            email=validated_data['email'],
-            phone=validated_data['phone'],
-            state=validated_data.get('state'),
-            district=validated_data.get('district'),
-            place=validated_data.get('place'),
-            password=validated_data['password'],
-            role='worker'
+            username=validated_data["username"],
+            email=validated_data["email"],
+            phone=validated_data["phone"],
+            state=validated_data.get("state"),
+            district=validated_data.get("district"),
+            place=validated_data.get("place"),
+            password=validated_data["password"],
+            role="worker",
         )
         return user
-
 
 
 class CompanyRegisterSerializer(serializers.ModelSerializer):
     confirm_password = serializers.CharField(write_only=True)
+
     class Meta:
         model = User
         fields = [
-            'company_name',
-            'email',
-            'phone',
-            'state',
-            'district',
-            'place',
-            'password',
-            'confirm_password'
+            "company_name",
+            "email",
+            "phone",
+            "state",
+            "district",
+            "place",
+            "password",
+            "confirm_password",
         ]
-        extra_kwargs = {
-            'password': {'write_only': True}
-        }
+        extra_kwargs = {"password": {"write_only": True}}
+
     def validate(self, data):
 
         for field in self.Meta.fields:
             if not data.get(field):
                 raise serializers.ValidationError(f"{field} is required")
 
-        if data['password'] != data['confirm_password']:
+        if data["password"] != data["confirm_password"]:
             raise serializers.ValidationError("Passwords do not match")
-        password = data['password']
+        password = data["password"]
 
         if len(password) < 8:
             raise serializers.ValidationError("Password must be at least 8 characters")
@@ -115,20 +115,20 @@ class CompanyRegisterSerializer(serializers.ModelSerializer):
         return data
 
     def create(self, validated_data):
-        validated_data.pop('confirm_password')
+        validated_data.pop("confirm_password")
         user = User.objects.create_user(
-            username=validated_data.get('company_name'),
-            email=validated_data['email'],
-            phone=validated_data['phone'],
-            company_name=validated_data.get('company_name'),
-            state=validated_data.get('state'),
-            district=validated_data.get('district'),
-            place=validated_data.get('place'),
-            password=validated_data['password'],
-            role='company'
+            username=validated_data.get("company_name"),
+            email=validated_data["email"],
+            phone=validated_data["phone"],
+            company_name=validated_data.get("company_name"),
+            state=validated_data.get("state"),
+            district=validated_data.get("district"),
+            place=validated_data.get("place"),
+            password=validated_data["password"],
+            role="company",
         )
         return user
-    
+
 
 class ProfileSerializer(serializers.ModelSerializer):
     class Meta:

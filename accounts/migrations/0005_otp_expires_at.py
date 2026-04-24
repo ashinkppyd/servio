@@ -7,13 +7,13 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('accounts', '0004_otp'),
+        ("accounts", "0004_otp"),
     ]
 
     operations = [
         migrations.AddField(
-            model_name='otp',
-            name='expires_at',
+            model_name="otp",
+            name="expires_at",
             field=models.DateTimeField(default=django.utils.timezone.now),
             preserve_default=False,
         ),
