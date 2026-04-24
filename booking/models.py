@@ -28,6 +28,8 @@ class Booking(models.Model):
     attendance = models.CharField(
         max_length=20, choices=ATTENDANCE_CHOICES, default="pending"
     )
+    salary = models.IntegerField(default=0)
+    rating = models.IntegerField(null=True, blank=True)
 
     created_at = models.DateTimeField(auto_now_add=True)
     reminder_sent_at = models.DateTimeField(null=True, blank=True)
@@ -38,7 +40,9 @@ class Booking(models.Model):
 
 class Rating(models.Model):
     worker = models.ForeignKey(User, on_delete=models.CASCADE)
-    booking = models.ForeignKey(Booking, on_delete=models.CASCADE)
+    booking = models.ForeignKey(
+        Booking, on_delete=models.CASCADE, related_name="reviews"
+    )
     rating = models.IntegerField()
     review = models.TextField(blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
