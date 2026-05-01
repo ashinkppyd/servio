@@ -13,6 +13,7 @@ from .views import (
     ProfileView,
     ResendOTPView,
     ResetPasswordView,
+    SaveFCMTokenView,
     SendOTPView,
     VerifyLoginMFAView,
     VerifyMFAView,
@@ -38,4 +39,5 @@ urlpatterns = [
     path("enable-mfa/", EnableMFAView.as_view()),
     path("verify-mfa/", VerifyMFAView.as_view()),
     path("disable-mfa/", DisableMFAView.as_view()),
+    path("save-token/", SaveFCMTokenView.as_view()),
 ]

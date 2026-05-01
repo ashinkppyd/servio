@@ -11,6 +11,7 @@ class User(AbstractUser):
 
     role = models.CharField(max_length=10, choices=ROLE_CHOICES)
     email = models.EmailField(unique=True)
+    fcm_token = models.TextField(blank=True, null=True)
     phone = models.CharField(max_length=15, unique=True)
     state = models.CharField(max_length=100, blank=True, null=True)
     district = models.CharField(max_length=100, blank=True, null=True)

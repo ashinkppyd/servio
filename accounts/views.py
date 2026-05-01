@@ -11,6 +11,7 @@ from django.utils.encoding import force_bytes, force_str
 from django.utils.http import urlsafe_base64_decode, urlsafe_base64_encode
 from google.auth.transport import requests as google_requests
 from google.oauth2 import id_token
+from rest_framework import status
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -360,12 +361,30 @@ class GoogleLoginView(APIView):
             return Response({"error": "Invalid Google token"}, status=400)
 
 
+class SaveFCMTokenView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        token = request.data.get("token")
+
+        if not token:
+            return Response(
+                {"error": "Token is required"}, status=status.HTTP_400_BAD_REQUEST
+            )
+        print("Saving FCM token for user:", request.user.username)
+
+        User.objects.update_or_create(id=request.user.id, defaults={"fcm_token": token})
+
+        return Response(
+            {"message": "Token saved successfully"}, status=status.HTTP_200_OK
+        )
+
+
 class MeView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
-        print(" COOKIES:", request.COOKIES)
-        print(" USER:", request.user)
+
         user = request.user
 
         return Response(
@@ -374,6 +393,7 @@ class MeView(APIView):
                 "username": user.username,
                 "email": user.email,
                 "role": user.role,
+                "sqs": "triggered",
             }
         )
 

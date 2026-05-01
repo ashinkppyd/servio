@@ -4,6 +4,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from company.models import Slot
+from notifications.sqs_service import send_to_sqs
 from notifications.utils import send_notification
 from payments.models import Payment
 
@@ -29,6 +30,21 @@ class ApplyBookingView(APIView):
 
         if serializer.is_valid():
             serializer.save()
+            try:
+                response = send_to_sqs(
+                    {
+                        "type": "BOOKING_APPLICATION",
+                        "user_id": user.id,
+                        "message": (
+                            f"Hello {user.username}, " "You have successfully applied"
+                        ),
+                        "fcm_token": request.user.fcm_token,
+                    }
+                )
+                print("SQS RESPONSE:", response)
+                print("SQS message sent ✅")
+            except Exception as e:
+                print("SQS ERROR:", str(e))
             return Response({"message": "Applied successfully"}, status=201)
         return Response(serializer.errors, status=400)
 
