@@ -4,6 +4,7 @@ from io import BytesIO
 
 import pyotp
 import qrcode
+from django.conf import settings
 from django.contrib.auth import authenticate, get_user_model
 from django.contrib.auth.tokens import default_token_generator
 from django.core.mail import send_mail
@@ -421,7 +422,11 @@ class ForgotPasswordView(APIView):
         uid = urlsafe_base64_encode(force_bytes(user.id))
         token = default_token_generator.make_token(user)
 
-        reset_url = f"http://127.0.0.1:5173/reset-password/{uid}/{token}/"
+        frontend_url = (
+            request.headers.get("Origin")
+            or getattr(settings, "FRONTEND_URL", "http://127.0.0.1:5173")
+        ).rstrip("/")
+        reset_url = f"{frontend_url}/reset-password/{uid}/{token}/"
 
         send_mail(
             "Reset Your Password",
