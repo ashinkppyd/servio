@@ -74,6 +74,11 @@ class OTPModelTest(TestCase):
             otp="1234",
             expires_at=timezone.now() - timezone.timedelta(minutes=1),
         )
+        OTP.objects.filter(pk=otp.pk).update(
+            created_at=timezone.now() - timezone.timedelta(minutes=2)
+        )
+        otp.refresh_from_db()
+
         self.assertTrue(otp.is_expired())
 
     def test_can_resend(self):
@@ -81,3 +86,14 @@ class OTPModelTest(TestCase):
             email="test@test.com", otp="1234", expires_at=timezone.now()
         )
         self.assertFalse(otp.can_resend())
+
+    def test_can_resend_after_wait_time(self):
+        otp = OTP.objects.create(
+            email="test@test.com", otp="1234", expires_at=timezone.now()
+        )
+        OTP.objects.filter(pk=otp.pk).update(
+            created_at=timezone.now() - timezone.timedelta(seconds=31)
+        )
+        otp.refresh_from_db()
+
+        self.assertTrue(otp.can_resend())

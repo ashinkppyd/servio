@@ -1,4 +1,5 @@
 from django.db.models import Avg
+from django.utils import timezone
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -46,10 +47,13 @@ class AllSitesView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
-        sites = Site.objects.all()
+        today = timezone.localdate()
+        sites = Site.objects.filter(date__gte=today)
         serializer = SiteSerializer(sites, many=True)
 
-        bookings = Booking.objects.filter(worker=request.user)
+        bookings = Booking.objects.filter(
+            worker=request.user, slot__site__date__gte=today
+        )
         print("User Bookings:", bookings)
 
         booking_map = {b.slot.id: b.status for b in bookings}

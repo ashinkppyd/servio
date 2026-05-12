@@ -1,4 +1,5 @@
 from django.db import transaction
+from django.utils import timezone
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -12,23 +13,70 @@ from .models import Booking, Rating
 from .serializers import BookingSerializer
 from .utils import calculate_salary, update_worker_progress
 
+ACTIVE_BOOKING_STATUSES = ["pending", "approved"]
+
+
+def active_booking_conflict(worker, event_date):
+    return Booking.objects.filter(
+        worker=worker,
+        status__in=ACTIVE_BOOKING_STATUSES,
+        slot__site__date=event_date,
+    )
+
+
+def first_serializer_error(errors):
+    for value in errors.values():
+        if isinstance(value, list) and value:
+            return str(value[0])
+        if isinstance(value, dict):
+            nested = first_serializer_error(value)
+            if nested:
+                return nested
+        return str(value)
+    return "Invalid booking request"
+
 
 class ApplyBookingView(APIView):
     permission_classes = [IsAuthenticated]
 
     def post(self, request):
         user = request.user
-        existing = Booking.objects.filter(
-            worker=user, status__in=["pending", "approved"]
-        )
-        if existing.exists():
-            return Response(
-                {"error": "You can only apply for one role at a time"}, status=400
-            )
 
         serializer = BookingSerializer(data=request.data, context={"request": request})
 
         if serializer.is_valid():
+            slot = serializer.validated_data["slot"]
+            event_date = slot.site.date
+            today = timezone.localdate()
+
+            if event_date < today:
+                return Response(
+                    {
+                        "error": "This work date is already over",
+                        "code": "WORK_DATE_OVER",
+                        "work_date": event_date,
+                        "today": today,
+                    },
+                    status=400,
+                )
+
+            existing = (
+                active_booking_conflict(user, event_date)
+                .select_related("slot", "slot__site")
+                .first()
+            )
+            if existing:
+                return Response(
+                    {
+                        "error": "You can only apply for one role on the same day",
+                        "code": "SAME_DAY_BOOKING_EXISTS",
+                        "work_date": event_date,
+                        "existing_role": existing.slot.position,
+                        "existing_status": existing.status,
+                    },
+                    status=400,
+                )
+
             serializer.save()
             try:
                 response = send_to_sqs(
@@ -46,7 +94,14 @@ class ApplyBookingView(APIView):
             except Exception as e:
                 print("SQS ERROR:", str(e))
             return Response({"message": "Applied successfully"}, status=201)
-        return Response(serializer.errors, status=400)
+        return Response(
+            {
+                "error": first_serializer_error(serializer.errors),
+                "code": "INVALID_BOOKING_REQUEST",
+                "details": serializer.errors,
+            },
+            status=400,
+        )
 
 
 class UpdateBookingStatusView(APIView):
@@ -62,11 +117,38 @@ class UpdateBookingStatusView(APIView):
 
         status = request.data.get("status")
 
-        if booking.status == "approved":
-            return Response({"error": "Already approved"}, status=400)
+        if status not in ["approved", "rejected"]:
+            return Response({"error": "Invalid status"}, status=400)
 
         if status == "approved":
             with transaction.atomic():
+                booking = (
+                    Booking.objects.select_for_update()
+                    .select_related("slot", "slot__site", "worker")
+                    .get(id=booking.id)
+                )
+
+                if booking.status == "approved":
+                    return Response({"error": "Already approved"}, status=400)
+
+                event_date = booking.slot.site.date
+                if event_date < timezone.localdate():
+                    return Response({"error": "This event is already over"}, status=400)
+
+                if (
+                    active_booking_conflict(booking.worker, event_date)
+                    .exclude(id=booking.id)
+                    .exists()
+                ):
+                    return Response(
+                        {
+                            "error": (
+                                "This worker already has a booking on the same day"
+                            )
+                        },
+                        status=400,
+                    )
+
                 slot = Slot.objects.select_for_update().get(id=booking.slot.id)
 
                 if slot.available_slots <= 0:
@@ -99,8 +181,10 @@ class CompanyBookingsView(APIView):
 
     def get(self, request):
         try:
+            today = timezone.localdate()
             bookings = Booking.objects.filter(
-                slot__site__company_id=request.user.id
+                slot__site__company_id=request.user.id,
+                slot__site__date__gte=today,
             ).select_related("worker", "slot", "slot__site")
 
             data = []
@@ -118,6 +202,7 @@ class CompanyBookingsView(APIView):
                         "status": b.status,
                         "attendance": getattr(b, "attendance", "pending"),
                         "site_name": b.slot.site.name,
+                        "date": b.slot.site.date,
                     }
                 )
             return Response(data)

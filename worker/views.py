@@ -1,3 +1,4 @@
+from django.utils import timezone
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -13,7 +14,8 @@ class WorkerSitesView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
-        sites = Site.objects.all()
+        today = timezone.localdate()
+        sites = Site.objects.filter(date__gte=today)
         data = []
         for site in sites:
             slots = []
@@ -43,9 +45,10 @@ class WorkerSiteReportView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
-        bookings = Booking.objects.filter(worker=request.user).select_related(
-            "slot__site"
-        )
+        today = timezone.localdate()
+        bookings = Booking.objects.filter(
+            worker=request.user, slot__site__date__gte=today
+        ).select_related("slot__site")
         data = []
         for b in bookings:
             data.append(
