@@ -8,6 +8,7 @@ from django.conf import settings
 from django.contrib.auth import authenticate, get_user_model
 from django.contrib.auth.tokens import default_token_generator
 from django.core.mail import send_mail
+from django.http import JsonResponse
 from django.utils.encoding import force_bytes, force_str
 from django.utils.http import urlsafe_base64_decode, urlsafe_base64_encode
 from google.auth.transport import requests as google_requests
@@ -62,14 +63,16 @@ class SendOTPView(APIView):
         # role = request.data.get("role")
         if not email:
             return Response({"error": "Email required"}, status=400)
+        OTP.objects.filter(email=email).delete()
         response = Response({"message": "OTP sent successfully"}, status=200)
 
         response.set_cookie(
             key="register_data",
             value=json.dumps(request.data),
             httponly=True,
-            secure=False,
-            samesite="Lax",
+            secure=True,
+            samesite="None",
+            domain=".servio-events.online",
             path="/",
             max_age=300,
         )
@@ -81,36 +84,100 @@ class VerifyOTPAndRegisterView(APIView):
     permission_classes = [AllowAny]
 
     def post(self, request):
-        otp = request.data.get("otp")
+        print("VERIFY OTP CALLED WITH DATA:", request.data)
+
+        # Clean OTP input
+        otp = str(request.data.get("otp", "")).strip()
+        print("OTP RECEIVED:", repr(otp))
+
+        # Get registration data from cookie
         raw_data = request.COOKIES.get("register_data")
+        print("RAW DATA FROM COOKIE:", raw_data)
+
         if not raw_data:
+            print("No register_data cookie found")
             return Response({"error": "Session expired"}, status=400)
 
-        data = json.loads(raw_data)
+        try:
+            data = json.loads(raw_data)
+        except Exception as e:
+            print("COOKIE JSON ERROR:", e)
+            return Response({"error": "Invalid session data"}, status=400)
+
         email = data.get("email")
         role = data.get("role")
+
+        print(f"Email: {email}, Role: {role}")
+
+        # Get latest OTP
         otp_obj = OTP.objects.filter(email=email).order_by("-created_at").first()
+        print("OTP Object:", otp_obj)
 
         if not otp_obj:
             return Response({"error": "OTP not found"}, status=400)
-        if otp_obj.is_expired():
-            return Response({"error": "OTP expired"}, status=400)
-        if str(otp_obj.otp) != str(otp):
-            return Response({"error": "Invalid OTP"}, status=400)
-        otp_obj.delete()
 
+        # Debug exact values
+        print("DB OTP:", repr(str(otp_obj.otp)))
+        print("USER OTP:", repr(otp))
+        print("OTP EMAIL:", otp_obj.email)
+        print("COOKIE EMAIL:", email)
+
+        # Expiry check
+        if otp_obj.is_expired():
+            otp_obj.delete()
+            return Response({"error": "OTP expired"}, status=400)
+
+        # OTP comparison
+        if str(otp_obj.otp).strip() != otp:
+            return Response(
+                {
+                    "error": "Invalid OTP",
+                    "db_otp": str(otp_obj.otp),
+                    "user_otp": otp,
+                },
+                status=400,
+            )
+
+        # OTP valid
+        otp_obj.delete()
+        print("OTP verified successfully, proceeding with registration")
+
+        # Registration
         if role == "worker":
+            print("Using WorkerRegisterSerializer")
             serializer = WorkerRegisterSerializer(data=data)
+            print("Worker serializer initialized with data:", serializer.initial_data)
+            print("Worker serializer valid:", serializer.is_valid())
+            print("Worker serializer errors:", serializer.errors)
+
         elif role == "company":
+            print("Using CompanyRegisterSerializer")
             serializer = CompanyRegisterSerializer(data=data)
+            print("Company serializer valid:", serializer.is_valid())
+            print("Company serializer errors:", serializer.errors)
+
         else:
+            print("Invalid role provided:", role)
             return Response({"error": "Invalid role"}, status=400)
 
         if serializer.is_valid():
             serializer.save()
-            response = Response({"message": f"{role} registered successfully"})
-            response.delete_cookie("register_data", path="/")
+            print("User registered successfully")
+
+            response = Response(
+                {"message": f"{role} registered successfully"}, status=200
+            )
+
+            print("Clearing register_data cookie")
+
+            response.delete_cookie(
+                key="register_data",
+                path="/",
+                domain=".servio-events.online",
+            )
+
             return response
+
         return Response(serializer.errors, status=400)
 
 
@@ -182,19 +249,21 @@ class LoginView(APIView):
             "access_token",
             str(refresh.access_token),
             httponly=True,
-            secure=False,
-            samesite="Lax",
+            secure=True,
+            samesite="None",
             max_age=3600,
             path="/",
+            domain=".servio-events.online",
         )
         response.set_cookie(
             "refresh_token",
             str(refresh),
             httponly=True,
-            secure=False,
-            samesite="Lax",
+            secure=True,
+            samesite="None",
             max_age=86400,
             path="/",
+            domain=".servio-events.online",
         )
         return response
 
@@ -231,17 +300,19 @@ class VerifyLoginMFAView(APIView):
             "access_token",
             str(refresh.access_token),
             httponly=True,
-            secure=False,
-            samesite="Lax",
+            secure=True,
+            samesite="None",
             max_age=3600,
             path="/",
+            domain=".servio-events.online",
         )
         response.set_cookie(
             "refresh_token",
             str(refresh),
             httponly=True,
-            secure=False,
-            samesite="Lax",
+            secure=True,
+            samesite="None",
+            domain=".servio-events.online",
             max_age=86400,
             path="/",
         )
@@ -312,10 +383,7 @@ class GoogleLoginView(APIView):
             idinfo = id_token.verify_oauth2_token(
                 token,
                 google_requests.Request(),
-                (
-                    "439470469308-jogdufc2e60kcbp02vdctdfdbbd9iu49"
-                    ".apps.googleusercontent.com"
-                ),
+                settings.GOOGLE_CLIENT_ID,
             )
             email = idinfo.get("email")
             if not email:
@@ -341,19 +409,21 @@ class GoogleLoginView(APIView):
                 "access_token",
                 str(refresh.access_token),
                 httponly=True,
-                secure=False,
-                samesite="Lax",
+                secure=True,
+                samesite="None",
                 max_age=3600,
                 path="/",
+                domain=".servio-events.online",
             )
             response.set_cookie(
                 "refresh_token",
                 str(refresh),
                 httponly=True,
-                secure=False,
-                samesite="Lax",
+                secure=True,
+                samesite="None",
                 max_age=86400,
                 path="/",
+                domain=".servio-events.online",
             )
             return response
 
@@ -400,12 +470,25 @@ class MeView(APIView):
 
 
 class LogoutView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [AllowAny]
 
     def post(self, request):
-        response = Response({"message": "Logged out"})
-        response.delete_cookie("access_token", path="/")
-        response.delete_cookie("refresh_token", path="/")
+        response = Response({"message": "Logged out"}, status=200)
+
+        response.delete_cookie(
+            key="access_token",
+            path="/",
+            domain=".servio-events.online",
+            samesite="None",
+        )
+
+        response.delete_cookie(
+            key="refresh_token",
+            path="/",
+            domain=".servio-events.online",
+            samesite="None",
+        )
+
         return response
 
 
@@ -474,3 +557,75 @@ class ProfileView(APIView):
             serializer.save()
             return Response(serializer.data)
         return Response(serializer.errors, status=400)
+
+
+# class WorkerDirectoryView(APIView):
+#     permission_classes = [IsAuthenticated]
+
+#     def get(self, request):
+#         query = request.GET.get("q", "").strip()
+#         workers = User.objects.filter(role="worker", is_active=True).order_by(
+#             "username"
+#         )
+
+#         if query:
+#             workers = workers.filter(
+#                 Q(username__icontains=query)
+#                 | Q(email__icontains=query)
+#                 | Q(phone__icontains=query)
+#                 | Q(place__icontains=query)
+#                 | Q(district__icontains=query)
+#                 | Q(role_level__icontains=query)
+#             )
+
+#         data = []
+#         for worker in workers:
+#             data.append(
+#                 {
+#                     "id": worker.id,
+#                     "username": worker.username,
+#                     "email": worker.email,
+#                     "phone": worker.phone,
+#                     "place": worker.place,
+#                     "district": worker.district,
+#                     "state": worker.state,
+#                     "role_level": worker.role_level,
+#                     "total_jobs": worker.total_jobs,
+#                     "profile_image": (
+#                         worker.profile_image.url if worker.profile_image else None
+#                     ),
+#                 }
+#             )
+
+#         return Response(data)
+
+
+class WorkerDetailView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, worker_id):
+        try:
+            worker = User.objects.get(id=worker_id, role="worker")
+        except User.DoesNotExist:
+            return Response({"error": "Worker not found"}, status=404)
+
+        return Response(
+            {
+                "id": worker.id,
+                "username": worker.username,
+                "email": worker.email,
+                "phone": worker.phone,
+                "place": worker.place,
+                "district": worker.district,
+                "state": worker.state,
+                "role_level": worker.role_level,
+                "total_jobs": worker.total_jobs,
+                "profile_image": (
+                    worker.profile_image.url if worker.profile_image else None
+                ),
+            }
+        )
+
+
+def health_check(request):
+    return JsonResponse({"status": "healthy"}, status=200)

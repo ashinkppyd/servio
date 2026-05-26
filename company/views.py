@@ -4,7 +4,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from booking.models import Booking
+from booking.models import Booking, WaitlistApplication
 from company.models import Slot
 
 from .models import Site
@@ -58,8 +58,20 @@ class AllSitesView(APIView):
 
         booking_map = {b.slot.id: b.status for b in bookings}
         print("Booking Map:", booking_map)
+        waitlist_map = {
+            w.slot.id: w.status
+            for w in WaitlistApplication.objects.filter(
+                worker=request.user, slot__site__date__gte=today
+            )
+        }
 
-        return Response({"sites": serializer.data, "user_bookings": booking_map})
+        return Response(
+            {
+                "sites": serializer.data,
+                "user_bookings": booking_map,
+                "user_waitlist": waitlist_map,
+            }
+        )
 
 
 class DeleteSiteView(APIView):

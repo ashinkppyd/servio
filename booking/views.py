@@ -9,7 +9,7 @@ from notifications.sqs_service import send_to_sqs
 from notifications.utils import send_notification
 from payments.models import Payment
 
-from .models import Booking, Rating
+from .models import Booking, Rating, WaitlistApplication
 from .serializers import BookingSerializer
 from .utils import calculate_salary, update_worker_progress
 
@@ -102,6 +102,188 @@ class ApplyBookingView(APIView):
             },
             status=400,
         )
+
+
+class ApplyWaitlistView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        slot_id = request.data.get("slot")
+
+        try:
+            slot = Slot.objects.select_related("site", "site__company").get(id=slot_id)
+        except Slot.DoesNotExist:
+            return Response({"error": "Slot not found"}, status=404)
+
+        event_date = slot.site.date
+        today = timezone.localdate()
+
+        if event_date < today:
+            return Response({"error": "This work date is already over"}, status=400)
+
+        if slot.available_slots > 0:
+            return Response(
+                {"error": "This role still has open slots. Apply normally."},
+                status=400,
+            )
+
+        if active_booking_conflict(request.user, event_date).exists():
+            return Response(
+                {"error": "You can only apply for one role on the same day"},
+                status=400,
+            )
+
+        if Booking.objects.filter(worker=request.user, slot=slot).exists():
+            return Response({"error": "You already applied for this role"}, status=400)
+
+        waitlist, created = WaitlistApplication.objects.get_or_create(
+            worker=request.user,
+            slot=slot,
+            defaults={"status": "pending"},
+        )
+
+        if not created and waitlist.status == "pending":
+            return Response({"error": "Already in whitelist"}, status=400)
+
+        if not created and waitlist.status == "approved":
+            return Response({"error": "Whitelist already approved"}, status=400)
+
+        if not created and waitlist.status == "rejected":
+            waitlist.status = "pending"
+            waitlist.save(update_fields=["status", "updated_at"])
+
+        try:
+            send_notification(
+                slot.site.company,
+                (
+                    f"{request.user.username} requested whitelist access for "
+                    f"{slot.position} at {slot.site.name}"
+                ),
+                sender=request.user,
+            )
+        except Exception as e:
+            print("WAITLIST NOTIFICATION ERROR:", str(e))
+
+        return Response({"message": "Whitelist request sent"}, status=201)
+
+
+class CompanyWaitlistView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        waitlist = WaitlistApplication.objects.filter(
+            slot__site__company=request.user,
+            slot__site__date__gte=timezone.localdate(),
+        ).select_related("worker", "slot", "slot__site")
+
+        data = []
+        for item in waitlist:
+            data.append(
+                {
+                    "id": item.id,
+                    "worker_user_id": item.worker.id,
+                    "worker_name": item.worker.username,
+                    "phone": getattr(item.worker, "phone", ""),
+                    "location": getattr(item.worker, "place", ""),
+                    "role": item.slot.position,
+                    "slot_position": item.slot.position,
+                    "salary": calculate_salary(item.slot.position),
+                    "status": item.status,
+                    "site_name": item.slot.site.name,
+                    "date": item.slot.site.date,
+                    "slot_id": item.slot.id,
+                    "created_at": item.created_at,
+                }
+            )
+        return Response(data)
+
+
+class UpdateWaitlistStatusView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, waitlist_id):
+        status = request.data.get("status")
+
+        if status not in ["approved", "rejected"]:
+            return Response({"error": "Invalid status"}, status=400)
+
+        try:
+            waitlist = WaitlistApplication.objects.select_related(
+                "worker", "slot", "slot__site"
+            ).get(id=waitlist_id, slot__site__company=request.user)
+        except WaitlistApplication.DoesNotExist:
+            return Response({"error": "Not found"}, status=404)
+
+        if waitlist.status == "approved":
+            return Response({"error": "Already approved"}, status=400)
+
+        if waitlist.slot.site.date < timezone.localdate():
+            return Response({"error": "This event is already over"}, status=400)
+
+        if status == "rejected":
+            waitlist.status = "rejected"
+            waitlist.save(update_fields=["status", "updated_at"])
+            send_notification(
+                waitlist.worker,
+                (
+                    f"Your whitelist request for {waitlist.slot.position} "
+                    f"at {waitlist.slot.site.name} was rejected"
+                ),
+            )
+            return Response({"message": "rejected success"})
+
+        with transaction.atomic():
+            waitlist = (
+                WaitlistApplication.objects.select_for_update()
+                .select_related("worker", "slot", "slot__site")
+                .get(id=waitlist.id)
+            )
+
+            existing = (
+                active_booking_conflict(waitlist.worker, waitlist.slot.site.date)
+                .select_related("slot", "slot__site")
+                .first()
+            )
+            if existing:
+                return Response(
+                    {"error": "This worker already has a booking on the same day"},
+                    status=400,
+                )
+
+            booking, created = Booking.objects.get_or_create(
+                worker=waitlist.worker,
+                slot=waitlist.slot,
+                defaults={
+                    "status": "approved",
+                    "salary": calculate_salary(waitlist.slot.position),
+                },
+            )
+
+            if not created and booking.status in ACTIVE_BOOKING_STATUSES:
+                return Response({"error": "Worker already booked"}, status=400)
+
+            if not created:
+                booking.status = "approved"
+                booking.salary = calculate_salary(waitlist.slot.position)
+                booking.save(update_fields=["status", "salary"])
+
+            Payment.objects.get_or_create(
+                worker=booking.worker,
+                booking=booking,
+                defaults={"amount": booking.salary},
+            )
+
+            waitlist.status = "approved"
+            waitlist.save(update_fields=["status", "updated_at"])
+
+        send_notification(
+            waitlist.worker,
+            (
+                f"The company approved your whitelist request for "
+                f"{waitlist.slot.position} at {waitlist.slot.site.name}"
+            ),
+        )
+        return Response({"message": "approved success"})
 
 
 class UpdateBookingStatusView(APIView):

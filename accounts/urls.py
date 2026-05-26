@@ -19,6 +19,7 @@ from .views import (
     VerifyMFAView,
     VerifyOTPAndRegisterView,
     WorkerRegisterView,
+    health_check,
 )
 
 urlpatterns = [
@@ -40,4 +41,5 @@ urlpatterns = [
     path("verify-mfa/", VerifyMFAView.as_view()),
     path("disable-mfa/", DisableMFAView.as_view()),
     path("save-token/", SaveFCMTokenView.as_view()),
+    path("health/", health_check, name="health-check"),
 ]

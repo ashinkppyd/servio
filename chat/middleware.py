@@ -1,5 +1,7 @@
 # chat/middleware.py
 
+from urllib.parse import parse_qs
+
 from asgiref.sync import sync_to_async
 from channels.middleware import BaseMiddleware
 from django.contrib.auth import get_user_model
@@ -29,9 +31,22 @@ class JWTAuthMiddleware(BaseMiddleware):
 
         for part in cookie_header.split(";"):
             part = part.strip()
-            if part.startswith("access_token"):
+            if part.startswith("access_token="):
                 token = part.split("=", 1)[1]
                 break
+
+        # Fallback 1: Authorization header for clients that pass Bearer
+        # token in WS handshake.
+        if not token:
+            auth_header = headers.get(b"authorization", b"").decode().strip()
+            if auth_header.lower().startswith("bearer "):
+                token = auth_header.split(" ", 1)[1].strip()
+
+        # Fallback 2: Query param token, e.g. /ws/chat/123/?token=<jwt>
+        if not token:
+            query_string = scope.get("query_string", b"").decode()
+            params = parse_qs(query_string)
+            token = (params.get("token") or [None])[0]
         print(" TOKEN:", token)
 
         if token:

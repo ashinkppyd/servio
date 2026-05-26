@@ -22,3 +22,6 @@ class ChatHistoryView(APIView):
             messages, many=True, context={"request": request}
         )
         return Response(serializer.data)
+
+
+# hello

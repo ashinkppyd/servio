@@ -38,6 +38,23 @@ class Booking(models.Model):
         unique_together = ["worker", "slot"]
 
 
+class WaitlistApplication(models.Model):
+    STATUS_CHOICES = [
+        ("pending", "Pending"),
+        ("approved", "Approved"),
+        ("rejected", "Rejected"),
+    ]
+
+    worker = models.ForeignKey(User, on_delete=models.CASCADE)
+    slot = models.ForeignKey(Slot, on_delete=models.CASCADE)
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default="pending")
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        unique_together = ["worker", "slot"]
+
+
 class Rating(models.Model):
     worker = models.ForeignKey(User, on_delete=models.CASCADE)
     booking = models.ForeignKey(
